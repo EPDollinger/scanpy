@@ -880,6 +880,191 @@ def violin(
             return axs[0]
         else:
             return axs
+        
+@_doc_params(show_save_ax=doc_show_save_ax)
+def ecdf(
+    adata: AnnData,
+    keys: Union[str, Sequence[str]],
+    groupby: Optional[str] = None,
+    log: bool = False,
+    use_raw: Optional[bool] = None,
+    layer: Optional[str] = None,
+    xlabel: str = '',
+    ylabel: Optional[Union[str, Sequence[str]]] = None,
+    show: Optional[bool] = None,
+    save: Union[bool, str, None] = None,
+    ax: Optional[Axes] = None,
+    **kwds,
+):
+    """\
+    Violin plot.
+
+    Wraps :func:`seaborn.violinplot` for :class:`~anndata.AnnData`.
+
+    Parameters
+    ----------
+    adata
+        Annotated data matrix.
+    keys
+        Keys for accessing variables of `.var_names` or fields of `.obs`.
+    groupby
+        The key of the observation grouping to consider.
+    log
+        Plot on logarithmic axis.
+    use_raw
+        Whether to use `raw` attribute of `adata`. Defaults to `True` if `.raw` is present.
+    stripplot
+        Add a stripplot on top of the violin plot.
+        See :func:`~seaborn.stripplot`.
+    jitter
+        Add jitter to the stripplot (only when stripplot is True)
+        See :func:`~seaborn.stripplot`.
+    size
+        Size of the jitter points.
+    layer
+        Name of the AnnData object layer that wants to be plotted. By
+        default adata.raw.X is plotted. If `use_raw=False` is set,
+        then `adata.X` is plotted. If `layer` is set to a valid layer name,
+        then the layer is plotted. `layer` takes precedence over `use_raw`.
+    scale
+        The method used to scale the width of each violin.
+        If 'width' (the default), each violin will have the same width.
+        If 'area', each violin will have the same area.
+        If 'count', a violin’s width corresponds to the number of observations.
+    order
+        Order in which to show the categories.
+    multi_panel
+        Display keys in multiple panels also when `groupby is not None`.
+    xlabel
+        Label of the x axis. Defaults to `groupby` if `rotation` is `None`,
+        otherwise, no label is shown.
+    ylabel
+        Label of the y axis. If `None` and `groupby` is `None`, defaults
+        to `'value'`. If `None` and `groubpy` is not `None`, defaults to `keys`.
+    rotation
+        Rotation of xtick labels.
+    {show_save_ax}
+    **kwds
+        Are passed to :func:`~seaborn.violinplot`.
+
+    Returns
+    -------
+    A :class:`~matplotlib.axes.Axes` object if `ax` is `None` else `None`.
+
+    Examples
+    --------
+
+    .. plot::
+        :context: close-figs
+
+        import scanpy as sc
+        adata = sc.datasets.pbmc68k_reduced()
+        sc.pl.violin(adata, keys='S_score')
+
+    Plot by category. Rotate x-axis labels so that they do not overlap.
+
+    .. plot::
+        :context: close-figs
+
+        sc.pl.violin(adata, keys='S_score', groupby='bulk_labels', rotation=90)
+
+    Set order of categories to be plotted or select specific categories to be plotted.
+
+    .. plot::
+        :context: close-figs
+
+        groupby_order = ['CD34+', 'CD19+ B']
+        sc.pl.violin(adata, keys='S_score', groupby='bulk_labels', rotation=90,
+            order=groupby_order)
+
+    Plot multiple keys.
+
+    .. plot::
+        :context: close-figs
+
+        sc.pl.violin(adata, keys=['S_score', 'G2M_score'], groupby='bulk_labels',
+            rotation=90)
+
+    For large datasets consider omitting the overlaid scatter plot.
+
+    .. plot::
+        :context: close-figs
+
+        sc.pl.violin(adata, keys='S_score', stripplot=False)
+
+    .. currentmodule:: scanpy
+
+    See also
+    --------
+    pl.stacked_violin
+    """
+    import seaborn as sns  # Slow import, only import if called
+
+    sanitize_anndata(adata)
+    use_raw = _check_use_raw(adata, use_raw)
+    if isinstance(keys, str):
+        keys = [keys]
+    keys = list(OrderedDict.fromkeys(keys))  # remove duplicates, preserving the order
+
+    if isinstance(ylabel, (str, type(None))):
+        ylabel = [ylabel] * (1 if groupby is None else len(keys))
+    if groupby is None:
+        if len(ylabel) != 1:
+            raise ValueError(
+                f'Expected number of y-labels to be `1`, found `{len(ylabel)}`.'
+            )
+    elif len(ylabel) != len(keys):
+        raise ValueError(
+            f'Expected number of y-labels to be `{len(keys)}`, '
+            f'found `{len(ylabel)}`.'
+        )
+
+    if groupby is not None:
+        obs_df = get.obs_df(adata, keys=[groupby] + keys, layer=layer, use_raw=use_raw)
+        if kwds.get('palette', None) is None:
+            if not is_categorical_dtype(adata.obs[groupby]):
+                raise ValueError(
+                    f'The column `adata.obs[{groupby!r}]` needs to be categorical, '
+                    f'but is of dtype {adata.obs[groupby].dtype}.'
+                )
+            _utils.add_colors_for_categorical_sample_annotation(adata, groupby)
+            kwds['palette'] = dict(
+                zip(obs_df[groupby].cat.categories, adata.uns[f'{groupby}_colors'])
+            )
+    else:
+        obs_df = get.obs_df(adata, keys=keys, layer=layer, use_raw=use_raw)
+    if groupby is None:
+        obs_tidy = pd.melt(obs_df, value_vars=keys)
+        x = 'variable'
+        ys = ['value']
+    else:
+        obs_tidy = obs_df
+        x = groupby
+        ys = keys
+
+        if ax is None:
+            axs, _, _, _ = setup_axes(
+                ax=ax,
+                panels=['x'] if groupby is None else keys,
+                show_ticks=True,
+                right_margin=0.3,
+            )
+        else:
+            axs = [ax]
+        
+    melteddf = obs_tidy.melt(id_vars=groupby, var_name='Gene', value_name='Expression')
+    
+    g=sns.displot(data=melteddf,x='Expression',hue=groupby, col='Gene', kind='ecdf', **kwds)
+    g.set_yticks([0,0.25,0.5,0.75,1.0])
+    
+    
+    show = settings.autoshow if show is None else show
+    _utils.savefig_or_show('violin', show=show, save=save)
+    if not show:
+        if len(axs) == 1:
+            return axs[0]
+        else:
+            return axs
 
 
 @_doc_params(show_save_ax=doc_show_save_ax)
