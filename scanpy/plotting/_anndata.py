@@ -1055,7 +1055,7 @@ def ecdf(
     melteddf = obs_tidy.melt(id_vars=groupby, var_name='Gene', value_name='Expression')
     
     g=sns.displot(data=melteddf,x='Expression',hue=groupby, col='Gene', kind='ecdf', **kwds)
-    g.set_yticks([0,0.25,0.5,0.75,1.0])
+    g.set(yticks=[0,0.25,0.5,0.75,1.0])
     
     
     show = settings.autoshow if show is None else show

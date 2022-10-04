@@ -7,6 +7,7 @@ from ._anndata import (
     dendrogram,
     correlation_matrix,
     heatmap,
+    ecdf,
 )
 from ._dotplot import DotPlot, dotplot
 from ._matrixplot import MatrixPlot, matrixplot
